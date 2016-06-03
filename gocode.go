@@ -14,6 +14,8 @@ var (
 	g_sock      = flag.String("sock", defaultSocketType, "socket type (unix | tcp)")
 	g_addr      = flag.String("addr", "127.0.0.1:37373", "address for tcp socket")
 	g_debug     = flag.Bool("debug", false, "enable server-side debug mode")
+	g_importsrc = flag.Bool("importsrc", true, "import source instead of binaries")
+	g_oneshot   = flag.Bool("oneshot", false, "no server")
 )
 
 func getSocketPath() string {
@@ -35,6 +37,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr,
 		"\nCommands:\n"+
 			"  autocomplete [<path>] <offset>     main autocompletion command\n"+
+			"  lookup [<path>] <offset>           definition location, type, and doc\n"+
+			"  reporterrors <path>                list syntax and type errors in file\n"+
 			"  exit                               terminate the gocode daemon\n")
 }
 

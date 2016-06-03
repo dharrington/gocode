@@ -10,13 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mdempsky/gocode/gbimporter"
 	"github.com/mdempsky/gocode/suggest"
 )
 
-func doClient() {
+func clientConnect() *rpc.Client {
 	addr := *g_addr
 	if *g_sock == "unix" {
 		addr = getSocketPath()
@@ -37,15 +38,23 @@ func doClient() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		return client
 	}
-	defer client.Close()
-
+	return client
+}
+func doClient() {
 	if flag.NArg() > 0 {
 		switch flag.Arg(0) {
 		case "autocomplete":
-			cmdAutoComplete(client)
+			cmdAutoComplete()
+		case "reporterrors":
+			cmdReportErrors()
+		case "lookup":
+			cmdLookup()
 		case "close", "exit":
-			cmdExit(client)
+			c := clientConnect()
+			defer c.Close()
+			cmdExit(c)
 		default:
 			fmt.Printf("gocode: unknown subcommand: %q\nRun 'gocode -help' for usage.\n", flag.Arg(0))
 		}
@@ -91,13 +100,21 @@ func tryToConnect(network, address string) (*rpc.Client, error) {
 	}
 }
 
-func cmdAutoComplete(c *rpc.Client) {
+func cmdAutoComplete() {
 	var req AutoCompleteRequest
 	req.Filename, req.Data, req.Cursor = prepareFilenameDataCursor()
 	req.Context = gbimporter.PackContext(&build.Default)
 
 	var res AutoCompleteReply
-	if err := c.Call("Server.AutoComplete", &req, &res); err != nil {
+	var err error
+	if *g_oneshot {
+		err = AutoComplete(&req, &res)
+	} else {
+		c := clientConnect()
+		defer c.Close()
+		err = c.Call("Server.AutoComplete", &req, &res)
+	}
+	if err != nil {
 		panic(err)
 	}
 
@@ -106,6 +123,72 @@ func cmdAutoComplete(c *rpc.Client) {
 		fmt = suggest.NiceFormat
 	}
 	fmt(os.Stdout, res.Candidates, res.Len)
+}
+
+func cmdReportErrors() {
+	var req ReportErrorsRequest
+	req.Filename, req.Data = prepareFilenameData()
+	req.Context = gbimporter.PackContext(&build.Default)
+
+	var res ReportErrorsReply
+	var err error
+	if *g_oneshot {
+		err = ReportErrors(&req, &res)
+	} else {
+		c := clientConnect()
+		defer c.Close()
+		err = c.Call("Server.ReportErrors", &req, &res)
+	}
+	if err != nil {
+		panic(err)
+	}
+	for _, e := range res.Errors {
+		fmt.Printf("Error: %d %d %s\n", e.Line, e.Col, e.Msg)
+	}
+}
+
+func cmdLookup() {
+	var req LookupRequest
+	req.Filename, req.Data, req.Cursor = prepareFilenameDataCursor()
+	req.Context = gbimporter.PackContext(&build.Default)
+
+	var res LookupReply
+	var err error
+	if *g_oneshot {
+		err = Lookup(&req, &res)
+	} else {
+		c := clientConnect()
+		defer c.Close()
+		err = c.Call("Server.Lookup", &req, &res)
+	}
+	if err != nil {
+		panic(err)
+	}
+	// Print out information about identifier at the cursor and the call if
+	// the cursor is within call parenthesis. One or both may be invalid.
+	// Ex:
+	// ident: /path/to/file.go:99:1
+	//  name: CoolFunc
+	//  type: func(int, string) string
+	//  callarg: 1
+	//  doc: // Comment about this identifier.
+	//  // ...
+	// call: /path/to/file.go:10:1
+	//  name: NeatFunc
+	//  type: func(int,int)
+	print := func(kind string, li LookupInfo) {
+		if li.Path == "" {
+			return
+		}
+		doc := strings.Replace(li.Doc, "\n", "<BR>", -1)
+		fmt.Printf("%s:\n pos: %s:%v:%v\n name: %s\n type: %s\n", kind, li.Path, li.Line, li.Column, li.Name, li.Type)
+		if li.CallArg != -1 {
+			fmt.Printf(" callarg: %d\n", li.CallArg)
+		}
+		fmt.Printf(" doc: %s\n", doc)
+	}
+	print("ident", res.Cursor)
+	print("call", res.Call)
 }
 
 func cmdExit(c *rpc.Client) {
@@ -155,4 +238,31 @@ func prepareFilenameDataCursor() (string, []byte, int) {
 	}
 
 	return filename, file, cursor
+}
+
+func prepareFilenameData() (string, []byte) {
+	var file []byte
+	var err error
+
+	if *g_input != "" {
+		file, err = ioutil.ReadFile(*g_input)
+	} else {
+		file, err = ioutil.ReadAll(os.Stdin)
+	}
+
+	if err != nil {
+		panic(err.Error())
+	}
+
+	filename := *g_input
+	switch flag.NArg() {
+	case 2:
+		filename = flag.Arg(1) // Override default filename
+	}
+
+	if filename != "" {
+		filename, _ = filepath.Abs(filename)
+	}
+
+	return filename, file
 }

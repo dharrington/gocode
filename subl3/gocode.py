@@ -129,9 +129,12 @@ class Gocode(sublime_plugin.EventListener):
 		filename = view.file_name()
 		cloc = "c{0}".format(loc)
 		gocode = subprocess.Popen(["gocode", "-f=csv", "autocomplete", filename, cloc],
-			stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-		out = gocode.communicate(src.encode())[0].decode()
-
+			stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		try:
+			result = gocode.communicate(src.encode(), timeout=1)
+		except:
+			return
+		out = result[0].decode()
 		result = []
 		for line in filter(bool, out.split("\n")):
 			arg = line.split(",,")
@@ -144,3 +147,204 @@ class Gocode(sublime_plugin.EventListener):
 		if not view.match_selector(0, "source.go"):
 			return
 		view.run_command('gocode_gofmt')
+
+class LookupResult:
+	def __init__(self):
+		self.pos, self.name, self.type, self.doc = "","","",""
+		self.callarg = None
+
+def lookup(view):
+	view = view
+	loc=view.sel()[0].a
+	filename = view.file_name()
+	src = view.substr(sublime.Region(0, view.size()))
+	cloc = "c{0}".format(loc)
+	gocode = subprocess.Popen(["gocode", "lookup", filename, cloc],
+		stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	try:
+		result = gocode.communicate(src.encode(), timeout=1)
+	except:
+		return
+	out = result[0].decode()
+	lines = out.split("\n")
+	ident,call=None,None
+	cur=None
+	for l in lines:
+		parts = l.split(":", 1)
+		if len(parts)!=2: break
+		id, val = parts[0].strip(), parts[1].strip()
+		if id == 'ident':
+			ident=LookupResult()
+			cur = ident
+		elif id == 'call':
+			call=LookupResult()
+			cur=call
+		if cur == None: continue
+		if id == 'pos':
+			cur.pos = val
+		elif id == 'name':
+			cur.name = val
+		elif id == 'type':
+			cur.type = val
+		elif id == 'doc':
+			cur.doc = val.replace("<BR>", "\n")
+		elif id == 'callarg':
+			cur.callarg = int(val)
+	return ident, call
+
+class GocodeGotoDefinition(sublime_plugin.TextCommand):
+	def run(self, edit):
+		ident,call=lookup(self.view)
+		if ident is not None:
+			sublime.active_window().open_file(ident.pos,sublime.ENCODED_POSITION)
+
+html_escape_table = {
+    "&": "&amp;",
+    "'": "&apos;",
+    ">": "&gt;",
+    "<": "&lt;",
+    }
+
+def html_escape(text):
+    """Produce entities within text."""
+    return "".join(html_escape_table.get(c,c) for c in text)
+
+def show_type_info(res, showdoc=True, showpos=True, dim=False):
+	nameStyle = '<b style="color:#ff5555">{}</b>'
+	typeStyle = '<i style="color:#5555ff">{}</i>'
+	func = extract_arguments_and_returns(res.type)
+	if func is not None:
+		args,ret = func
+		desc = nameStyle.format(res.name)
+		type_str="("
+		for i, arg in enumerate(args):
+			if i != 0:
+				type_str += ","
+			if i == res.callarg:
+				type_str += '<b>{}</b>'.format(arg)
+			else:
+				type_str += arg
+		type_str += ") "
+		if len(ret)>1:
+			type_str += '({})'.format(','.join(ret))
+		else:
+			type_str += ','.join(ret)
+		desc += typeStyle.format(type_str)
+	else:
+		desc = nameStyle.format(res.name) + " " + typeStyle.format(res.type)
+	bgcolor = "#dddddd" if not dim else "#cccccc"
+	info = '<div style="font-size:12; padding:0px; margin:0px; background-color:{}">'.format(bgcolor)
+	info += '<tt style="color:brown">{}</tt><br>'.format(desc)
+	info += '<div style="font-size:10">'
+	if showpos:
+		pos=html_escape(res.pos)
+		info += '  <a href="' + pos + '">'+pos+"</a><br>"
+	if showdoc:
+		doc=res.doc
+		doclines=[l.lstrip("/").strip() for l in doc.split('\n')]
+		if len(doclines)>8:	doc=' '.join(doclines[:8])
+		else: doc=' '.join(doclines[:8])
+		doc=html_escape(doc) #.replace("\n", "<br>")
+		info += doc + "<br>"
+	info += '</div>'
+	info += '</div>'
+	return info
+
+class GocodePopupInfo(sublime_plugin.TextCommand):
+	def run(self, edit):
+		ident,call=lookup(self.view)
+		if ident is None:
+			if call is None:
+				return
+			else:
+				info = show_type_info(call, showdoc=True)
+		else:
+			if call is None:
+				info = show_type_info(ident, showdoc=True)
+			else:
+				info = show_type_info(call, showdoc=False, showpos=False)
+				info += show_type_info(ident, showdoc=True, showpos=True, dim=True)
+		self.view.show_popup(info, location=-1, max_width=600, on_navigate=self.on_navigate)
+	def on_navigate(self, pos):
+		sublime.active_window().open_file(pos, sublime.ENCODED_POSITION)
+			
+# Highlighting on errors containing these strings is only done when the file
+# is saved.
+QUIET_ERRORS = ['declared but not used', 'imported but not used', 'is not used', 'missing return']
+
+# Call gocode reporterrors after a file is changed and highlight errors.
+class GocodeErrors(sublime_plugin.EventListener):
+	def __init__(self):
+		self.gosrc = False
+		self.waiting=0
+		self.errors = []
+
+	def clear(self, view):
+		self.errors=[]
+		view.erase_status('gocurrenterror')
+		view.erase_regions('gocodeerrors')
+		view.erase_regions('gocodewarnings')
+		view.erase_status('gocodeerrorcount')
+
+	def on_activated(self, view):
+		if not view.match_selector(0, "source.go"):
+			self.gosrc=False
+			return
+		self.gosrc=True
+		self.on_modified_async(view)
+
+	def update_errors(self, view, show_all):
+		self.clear(view)
+		src = view.substr(sublime.Region(0, view.size()))
+		filename = view.file_name()
+		gocode = subprocess.Popen(["gocode", "reporterrors", filename],
+			stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+		try:
+			result = gocode.communicate(src.encode(), timeout=1)
+		except:
+			return
+		out = result[0].decode()
+		err_regions = []
+		for line in out.split('\n'):
+			if line.startswith("Error:"):
+				parts=line.split()
+				row,col=int(parts[1]), int(parts[2])
+				pt = view.text_point(row-1, col-1)
+				# When writing code, some errors are just annoying.
+				if show_all or not any([(e in line) for e in QUIET_ERRORS]):
+					err_regions.append(view.word(pt))
+
+				self.errors.append((row-1, ' '.join(parts[3:])))
+		view.add_regions('gocodeerrors', err_regions, "error", "dot", 
+			sublime.DRAW_NO_FILL | sublime.DRAW_NO_OUTLINE | sublime.DRAW_SQUIGGLY_UNDERLINE)
+		err_count = len(err_regions)
+		if err_count > 0:
+			view.set_status('gocodeerrorcount', '** ' + str(err_count) + " ERRORS **")
+			self.on_selection_modified_async(view)
+		
+	def on_selection_modified_async(self, view):
+		if not self.gosrc: return
+		row, col = view.rowcol(view.sel()[0].begin())
+		view.erase_status('gocurrenterror')
+		for e in self.errors:
+			if e[0] == row:
+				view.set_status('gocurrenterror', e[1])
+	def on_post_save_async(self, view):
+		if not self.gosrc: return
+		if self.waiting == 0:
+			self.update_errors(view, True)
+	def on_modified_async(self, view):
+		if not self.gosrc: return
+		# 1 second after modifications, call update_errors.
+		if self.waiting == 0:
+			def cb():
+				if self.waiting==1:
+					self.waiting = 0
+					self.update_errors(view, not view.is_dirty())
+				else:
+					self.waiting = 1
+					sublime.set_timeout_async(cb, 1000)
+			self.waiting = 1
+			sublime.set_timeout_async(cb, 1000)
+		else:
+			self.waiting = 2
