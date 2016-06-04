@@ -8,7 +8,12 @@ Additionally, new commands have been added which provide new features:
 
 * Get call and symbol information. Can be used to provide tool-tips, call-tips,
   and go-to definition functionality.
+
+![Image](subl3/popup.png)
+  
 * Get syntax and type errors for a file as it's being edited.
+
+![Image](subl3/highlight_errors.png)
 
 See subl3/ for sublime text integration. Other editors do not yet have integration
 for these features.
@@ -19,8 +24,6 @@ To build:
 	cd $GOPATH/src/github.com/mdempsky
 	git clone https://github.com/dharrington/gocode.git
 	cd gocode; go build
-
-[![Build Status](https://travis-ci.org/mdempsky/gocode.svg?branch=master)](https://travis-ci.org/mdempsky/gocode)
 
 ## An autocompletion daemon for the Go programming language
 
