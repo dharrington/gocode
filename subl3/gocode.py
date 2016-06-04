@@ -17,12 +17,12 @@ Example Key Bindings:
 // Go to definition.
   { "keys": ["alt+g"], "command": "gocode_goto_definition",
     "context": [ { "key": "selector", "operator": "equal", "operand": "source.go", "match_all": true } ]
-  }
+  },
 
 // Run goimports
   { "keys": ["ctrl+shift+i"], "command": "gocode_imports",
     "context": [ { "key": "selector", "operator": "equal", "operand": "source.go", "match_all": true } ]
-  },
+  }
 
 Error highlighting settings:
 """
