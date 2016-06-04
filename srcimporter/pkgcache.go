@@ -17,6 +17,7 @@ import (
 
 type pkgInfo struct {
 	*ast.Package
+	path        string // path on which package was imported; eg go/types
 	fset        *token.FileSet
 	dir         *dir
 	tpkg        *types.Package
@@ -55,7 +56,7 @@ func (p *pkgInfo) Types() *types.Package {
 		FakeImportC:              true,
 		Importer:                 p.PkgCache(),
 	}
-	p.tpkg = types.NewPackage(p.dir.suffix, p.Package.Name)
+	p.tpkg = types.NewPackage(p.path, p.Package.Name)
 
 	ch := types.NewChecker(&cfg, p.fset, p.tpkg, nil)
 	var files []*ast.File
@@ -234,18 +235,17 @@ func (p *pkgCache) ImportFrom(path, srcDir string, mode types.ImportMode) (*type
 	return pkg.Types(), nil
 }
 
-func (p *pkgCache) getDir(root, pkgPath string) *dir {
-	if d := p.findDir(root, pkgPath); d != nil {
+func (p *pkgCache) getDir(path string) *dir {
+	if d := p.findDir(path); d != nil {
 		return d
 	}
-	d := newDir(p, root, pkgPath)
+	d := newDir(p, path)
 	d.updatePeek()
 	p.dirs[d.path] = d
 	return d
 }
 
-func (p *pkgCache) findDir(root, pkgPath string) *dir {
-	path := filepath.Join(root, pkgPath)
+func (p *pkgCache) findDir(path string) *dir {
 	if d, ok := p.dirs[path]; ok {
 		return d
 	}
@@ -254,9 +254,7 @@ func (p *pkgCache) findDir(root, pkgPath string) *dir {
 
 var failedPackages = map[string]bool{}
 
-type lookupPath struct{ root, suffix string }
-
-func (p *pkgCache) lookupPaths(pkgPath, srcDir string) (name string, paths []lookupPath) {
+func (p *pkgCache) lookupPaths(pkgPath, srcDir string) (name string, paths []string) {
 	name = pkgPath
 	pkgDir := ""
 	if idx := strings.LastIndex(pkgPath, "/"); idx != -1 {
@@ -265,11 +263,11 @@ func (p *pkgCache) lookupPaths(pkgPath, srcDir string) (name string, paths []loo
 	}
 	if EnableVendoring {
 		for _, d := range p.getVendorPaths(srcDir) {
-			paths = append(paths, lookupPath{d, pkgPath})
+			paths = append(paths, filepath.Join(d, pkgPath))
 		}
 	}
 	for _, d := range p.gopath {
-		paths = append(paths, lookupPath{d, pkgPath})
+		paths = append(paths, filepath.Join(d, pkgPath))
 	}
 	extendLookupPaths(p, pkgDir, pkgPath, &paths)
 	return name, paths
@@ -278,24 +276,25 @@ func (p *pkgCache) lookupPaths(pkgPath, srcDir string) (name string, paths []loo
 func (p *pkgCache) findPackage(pkgPath, srcDir string) *pkgInfo {
 	name, paths := p.lookupPaths(pkgPath, srcDir)
 	for _, pp := range paths {
-		sd := p.findDir(pp.root, pp.suffix)
+		sd := p.findDir(pp)
 		if sd == nil {
 			continue
 		}
 		if pkg := sd.packages[name]; pkg != nil {
 			return pkg
 		}
+		log.Printf("Not in pkgs(%v): %+v", pp, sd.packages)
 	}
 	return nil
 }
 func (p *pkgCache) getPackage(pkgPath, srcDir string) *pkgInfo {
 	name, paths := p.lookupPaths(pkgPath, srcDir)
 	for _, pp := range paths {
-		sd := p.getDir(pp.root, pp.suffix)
+		sd := p.getDir(pp)
 		if sd == nil {
 			continue
 		}
-		if pkg := sd.getPackage(name); pkg != nil {
+		if pkg := sd.getPackage(name, pkgPath); pkg != nil {
 			return pkg
 		}
 	}

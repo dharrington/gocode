@@ -19,20 +19,18 @@ type filePeek struct {
 
 // dir remembers directory information.
 type dir struct {
-	cache  *pkgCache
-	path   string
-	suffix string
+	cache *pkgCache
+	path  string
 	// packages contains only packages that have been imported.
 	packages  map[string]*pkgInfo
 	filePeeks map[string]*filePeek
 	peekTime  time.Time // time when updatePeek was called
 }
 
-func newDir(cache *pkgCache, root string, pkgPath string) *dir {
+func newDir(cache *pkgCache, path string) *dir {
 	return &dir{
 		cache:     cache,
-		path:      filepath.Join(root, pkgPath),
-		suffix:    pkgPath,
+		path:      path,
 		packages:  map[string]*pkgInfo{},
 		filePeeks: map[string]*filePeek{},
 	}
@@ -112,14 +110,14 @@ func (d *dir) modifiedPackages(mods map[*pkgInfo]bool) {
 		}
 	}
 }
-func (d *dir) getPackage(pkgName string) *pkgInfo {
+func (d *dir) getPackage(pkgName, pkgPath string) *pkgInfo {
 	if p := d.packages[pkgName]; p != nil {
 		return p
 	}
-	d.parsePackage(pkgName, 0)
+	d.parsePackage(pkgName, pkgPath, 0)
 	return d.packages[pkgName]
 }
-func (d *dir) parsePackage(pkgName string, mode parser.Mode) {
+func (d *dir) parsePackage(pkgName, pkgPath string, mode parser.Mode) {
 	if time.Since(d.peekTime) > time.Second {
 		d.updatePeek()
 	}
@@ -137,6 +135,7 @@ func (d *dir) parsePackage(pkgName string, mode parser.Mode) {
 			Name:  pkgName,
 			Files: make(map[string]*ast.File),
 		},
+		path: pkgPath,
 		fset: &token.FileSet{},
 		dir:  d,
 	}

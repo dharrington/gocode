@@ -127,11 +127,10 @@ func lookupObject(importer types.Importer, thisPkg *types.Package, thisFset *tok
 			if fset != nil {
 				result.Position = fset.Position(obj.Pos())
 			}
-			result.Type = types.TypeString(obj.Type(), qualify)
 		} else {
 			result.Position = thisFset.Position(obj.Pos())
-			result.Type = types.TypeString(obj.Type(), qualify)
 		}
+		result.Type = types.TypeString(obj.Type(), qualify)
 		result.Name = obj.Name()
 	}
 	if result.Position.Filename != "" {

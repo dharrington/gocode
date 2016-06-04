@@ -73,7 +73,6 @@ func findOtherPackageFiles(filename, pkgName string) []string {
 	if err != nil {
 		panic(err)
 	}
-	isTestFile := strings.HasSuffix(file, "_test.go")
 
 	// TODO(mdempsky): Use go/build.(*Context).MatchFile or
 	// something to properly handle build tags?
@@ -86,7 +85,7 @@ func findOtherPackageFiles(filename, pkgName string) []string {
 		if name == file || !strings.HasSuffix(name, ".go") {
 			continue
 		}
-		if !isTestFile && strings.HasSuffix(name, "_test.go") {
+		if strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 
