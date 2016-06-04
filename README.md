@@ -1,3 +1,25 @@
+## Gocode fork - import packages from source!
+
+This is a fork of mdempsky's fork of Gocode. This adds the ability to import from
+source files instead of binaries. Once source files are saved, they are
+transparently re-parsed so that Gocode can provide up-to-date suggestions.
+
+Additionally, new commands have been added which provide new features:
+
+* Get call and symbol information. Can be used to provide tool-tips, call-tips,
+  and go-to definition functionality.
+* Get syntax and type errors for a file as it's being edited.
+
+See subl3/ for sublime text integration. Other editors do not yet have integration
+for these features.
+
+To build:
+
+	mkdir $GOPATH/src/github.com/mdempsky
+	cd $GOPATH/src/github.com/mdempsky
+	git clone https://github.com/dharrington/gocode.git
+	cd gocode; go build
+
 [![Build Status](https://travis-ci.org/mdempsky/gocode.svg?branch=master)](https://travis-ci.org/mdempsky/gocode)
 
 ## An autocompletion daemon for the Go programming language

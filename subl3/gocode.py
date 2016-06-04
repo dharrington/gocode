@@ -1,4 +1,33 @@
 import sublime, sublime_plugin, subprocess, difflib
+import os
+
+"""
+Sublime Text 3 - Gocode integration
+Provides autocomplete and error highlighting by default, as well as a
+few commands.
+
+Example Key Bindings:
+
+// Show a popup with information about the identifier at the cursor.
+// Shows calltips if inside a function call.
+  { "keys": ["alt+a"], "command": "gocode_popup_info",
+    "context": [ { "key": "selector", "operator": "equal", "operand": "source.go", "match_all": true } ]
+  },
+
+// Go to definition.
+  { "keys": ["alt+g"], "command": "gocode_goto_definition",
+    "context": [ { "key": "selector", "operator": "equal", "operand": "source.go", "match_all": true } ]
+  }
+
+// Run goimports
+  { "keys": ["ctrl+shift+i"], "command": "gocode_imports",
+    "context": [ { "key": "selector", "operator": "equal", "operand": "source.go", "match_all": true } ]
+  },
+
+Error highlighting settings:
+"""
+UPDATE_ERRORS_ON_MODIFICATION = True
+SHOW_ERRORS = True
 
 # go to balanced pair, e.g.:
 # ((abc(def)))
@@ -200,7 +229,6 @@ class GocodeGotoDefinition(sublime_plugin.TextCommand):
 
 html_escape_table = {
     "&": "&amp;",
-    "'": "&apos;",
     ">": "&gt;",
     "<": "&lt;",
     }
@@ -212,8 +240,8 @@ def html_escape(text):
 def show_type_info(res, showdoc=True, showpos=True, dim=False):
 	nameStyle = '<b style="color:#ff5555">{}</b>'
 	typeStyle = '<i style="color:#5555ff">{}</i>'
-	func = extract_arguments_and_returns(res.type)
-	if func is not None:
+	if res.type.startswith("func("):
+		func = extract_arguments_and_returns(res.type)
 		args,ret = func
 		desc = nameStyle.format(res.name)
 		type_str="("
@@ -264,10 +292,10 @@ class GocodePopupInfo(sublime_plugin.TextCommand):
 			else:
 				info = show_type_info(call, showdoc=False, showpos=False)
 				info += show_type_info(ident, showdoc=True, showpos=True, dim=True)
-		self.view.show_popup(info, location=-1, max_width=600, on_navigate=self.on_navigate)
+		self.view.show_popup(info, location=-1, max_width=1000, on_navigate=self.on_navigate)
 	def on_navigate(self, pos):
 		sublime.active_window().open_file(pos, sublime.ENCODED_POSITION)
-			
+
 # Highlighting on errors containing these strings is only done when the file
 # is saved.
 QUIET_ERRORS = ['declared but not used', 'imported but not used', 'is not used', 'missing return']
@@ -294,6 +322,7 @@ class GocodeErrors(sublime_plugin.EventListener):
 		self.on_modified_async(view)
 
 	def update_errors(self, view, show_all):
+		if not SHOW_ERRORS: return
 		self.clear(view)
 		src = view.substr(sublime.Region(0, view.size()))
 		filename = view.file_name()
@@ -315,13 +344,13 @@ class GocodeErrors(sublime_plugin.EventListener):
 					err_regions.append(view.word(pt))
 
 				self.errors.append((row-1, ' '.join(parts[3:])))
-		view.add_regions('gocodeerrors', err_regions, "error", "dot", 
+		view.add_regions('gocodeerrors', err_regions, "error", "dot",
 			sublime.DRAW_NO_FILL | sublime.DRAW_NO_OUTLINE | sublime.DRAW_SQUIGGLY_UNDERLINE)
 		err_count = len(err_regions)
 		if err_count > 0:
 			view.set_status('gocodeerrorcount', '** ' + str(err_count) + " ERRORS **")
 			self.on_selection_modified_async(view)
-		
+
 	def on_selection_modified_async(self, view):
 		if not self.gosrc: return
 		row, col = view.rowcol(view.sel()[0].begin())
@@ -334,6 +363,7 @@ class GocodeErrors(sublime_plugin.EventListener):
 		if self.waiting == 0:
 			self.update_errors(view, True)
 	def on_modified_async(self, view):
+		if not UPDATE_ERRORS_ON_MODIFICATION: return
 		if not self.gosrc: return
 		# 1 second after modifications, call update_errors.
 		if self.waiting == 0:
@@ -348,3 +378,20 @@ class GocodeErrors(sublime_plugin.EventListener):
 			sublime.set_timeout_async(cb, 1000)
 		else:
 			self.waiting = 2
+
+# Run goimports
+class GocodeImportsCommand(sublime_plugin.TextCommand):
+    def run(self, edit, saving=False):
+        # Get the content of the current window from the text editor.
+        selection = sublime.Region(0, self.view.size())
+        content = self.view.substr(selection)
+
+        process = subprocess.Popen(["goimports"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                cwd=os.path.dirname(self.view.file_name()))
+        process.stdin.write(bytes(content, 'utf8'))
+        process.stdin.close()
+        process.wait()
+
+        # Put the result back.
+        self.view.replace(edit, selection, process.stdout.read().decode('utf8'))
