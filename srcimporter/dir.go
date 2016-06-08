@@ -145,6 +145,7 @@ func (d *dir) parsePackage(pkgName, pkgPath string, mode parser.Mode) {
 		if src, err := parser.ParseFile(pkg.fset, filename, nil, mode); err == nil {
 			if name := src.Name.Name; name != pkg.Package.Name {
 				log.Printf("Package name mismatch: %q!=%q", name, pkg.Package.Name)
+				src.Name = ast.NewIdent(pkg.Package.Name)
 			}
 			pkg.Files[filename] = src
 		} else {
@@ -162,6 +163,9 @@ func pkgNameFor(filename string) (string, error) {
 	file, err := parser.ParseFile(token.NewFileSet(), filename, nil, parser.PackageClauseOnly)
 	if err != nil {
 		return "", err
+	}
+	if name := changePackageName(filename, file.Name.Name); name != "" {
+		return name, nil
 	}
 	return file.Name.Name, nil
 }

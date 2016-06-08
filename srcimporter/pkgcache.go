@@ -132,6 +132,12 @@ func (p *pkgCache) getVendorPaths(srcDir string) []string {
 
 // removeStalePackages checks for stale packages and removes them.
 func (p *pkgCache) removeStalePackages() {
+	if Debug {
+		t0 := time.Now()
+		defer func() {
+			log.Printf("removeStalePackages took %v", time.Since(t0))
+		}()
+	}
 	lastCheckpoint := time.Now()
 	// Frequently unlock mutex to prevent blocking for too long.
 	checkpoint := func() {
@@ -150,14 +156,63 @@ func (p *pkgCache) removeStalePackages() {
 		paths = append(paths, path)
 	}
 
-	// Detect modified packages.
-	modifiedPackages := map[*pkgInfo]bool{}
+	// TODO: This is fairly long and inefficient. This entire routine
+	// can take over a second even if nothing changes. Reloads due to packages
+	// that once failed to import is ugly.
+
+	// Gather all imported paths.
+	allImports := map[string]bool{}
 	for _, path := range paths {
-		checkpoint()
 		d := p.dirs[path]
 		if d == nil {
 			continue
 		}
+		checkpoint()
+		for _, pkg := range d.packages {
+			for _, imp := range packageImports(pkg.Package) {
+				allImports[imp] = true
+			}
+		}
+	}
+	delete(allImports, "unsafe") // unsafe isn't loaded from disk
+	// Gather missing imports. Packages that previously failed to import
+	// need special attention if they show up later.
+	newPackages := map[string]bool{}
+	for path := range allImports {
+		checkpoint()
+		if p.findPackage(path, "") == nil {
+			if pkg := p.getPackage(path, ""); pkg != nil {
+				newPackages[path] = true
+			}
+		}
+	}
+
+	// If any previously-failed-to-import packages import now, mark dependencies as modified.
+	modifiedPackages := map[*pkgInfo]bool{}
+	if len(newPackages) > 0 {
+		for _, path := range paths {
+			d := p.dirs[path]
+			if d == nil {
+				continue
+			}
+			checkpoint()
+			for _, pkg := range d.packages {
+				for _, imp := range packageImports(pkg.Package) {
+					if newPackages[imp] {
+						modifiedPackages[pkg] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Detect modified packages.
+	for _, path := range paths {
+		d := p.dirs[path]
+		if d == nil {
+			continue
+		}
+		checkpoint()
 		d.updatePeek()
 		d.modifiedPackages(modifiedPackages)
 	}
@@ -283,7 +338,6 @@ func (p *pkgCache) findPackage(pkgPath, srcDir string) *pkgInfo {
 		if pkg := sd.packages[name]; pkg != nil {
 			return pkg
 		}
-		log.Printf("Not in pkgs(%v): %+v", pp, sd.packages)
 	}
 	return nil
 }
