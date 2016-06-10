@@ -6,4 +6,4 @@ import "github.com/mdempsky/gocode/gbimporter"
 
 func extendGopath(ctx *gbimporter.PackedContext, filename string, paths *[]string) {}
 func extendLookupPaths(p *pkgCache, pkgDir, pkgPath string, paths *[]string)       {}
-func changePackageName(srcFilePath string, pkgName string) string                  {}
+func changePackageName(srcFilePath string, pkgName string) string                  { return "" }
