@@ -58,6 +58,7 @@ type AutoCompleteRequest struct {
 	Data     []byte
 	Cursor   int
 	Context  gbimporter.PackedContext
+	Filter   bool
 }
 
 type AutoCompleteReply struct {
@@ -97,7 +98,7 @@ func AutoComplete(req *AutoCompleteRequest, res *AutoCompleteReply) error {
 	now := time.Now()
 	imp := newImporter(&req.Context, req.Filename)
 
-	candidates, d := suggest.New(*g_debug).Suggest(imp, req.Filename, req.Data, req.Cursor)
+	candidates, d := suggest.New(*g_debug).Suggest(imp, req.Filename, req.Data, req.Cursor, req.Filter)
 	elapsed := time.Since(now)
 	if *g_debug {
 		log.Printf("Elapsed duration: %v\n", elapsed)

@@ -103,6 +103,7 @@ func tryToConnect(network, address string) (*rpc.Client, error) {
 func cmdAutoComplete() {
 	var req AutoCompleteRequest
 	req.Filename, req.Data, req.Cursor = prepareFilenameDataCursor()
+	req.Filter = *g_filtersuggestions
 	req.Context = gbimporter.PackContext(&build.Default)
 
 	var res AutoCompleteReply

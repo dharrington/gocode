@@ -8,14 +8,15 @@ import (
 )
 
 var (
-	g_is_server = flag.Bool("s", false, "run a server instead of a client")
-	g_format    = flag.String("f", "nice", "output format (vim | emacs | nice | csv | json)")
-	g_input     = flag.String("in", "", "use this file instead of stdin input")
-	g_sock      = flag.String("sock", defaultSocketType, "socket type (unix | tcp)")
-	g_addr      = flag.String("addr", "127.0.0.1:37373", "address for tcp socket")
-	g_debug     = flag.Bool("debug", false, "enable server-side debug mode")
-	g_importsrc = flag.Bool("importsrc", true, "import source instead of binaries")
-	g_oneshot   = flag.Bool("oneshot", false, "no server")
+	g_is_server         = flag.Bool("s", false, "run a server instead of a client")
+	g_format            = flag.String("f", "nice", "output format (vim | emacs | nice | csv | json)")
+	g_input             = flag.String("in", "", "use this file instead of stdin input")
+	g_sock              = flag.String("sock", defaultSocketType, "socket type (unix | tcp)")
+	g_addr              = flag.String("addr", "127.0.0.1:37373", "address for tcp socket")
+	g_debug             = flag.Bool("debug", false, "enable server-side debug mode")
+	g_filtersuggestions = flag.Bool("filtersuggestions", true, "filter suggestions with text before cursor")
+	g_importsrc         = flag.Bool("importsrc", true, "import source instead of binaries")
+	g_oneshot           = flag.Bool("oneshot", false, "no server")
 )
 
 func getSocketPath() string {

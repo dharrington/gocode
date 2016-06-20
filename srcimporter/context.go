@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // This code was hacked out of go/build.
@@ -304,4 +305,84 @@ func (ctxt *Context) match(name string, allTags map[string]bool) bool {
 	}
 
 	return false
+}
+
+var (
+	slashSlash = []byte("//")
+	slashStar  = []byte("/*")
+	starSlash  = []byte("*/")
+	newline    = []byte("\n")
+)
+
+// skipSpaceOrComment returns data with any leading spaces or comments removed.
+func skipSpaceOrComment(data []byte) []byte {
+	for len(data) > 0 {
+		switch data[0] {
+		case ' ', '\t', '\r', '\n':
+			data = data[1:]
+			continue
+		case '/':
+			if bytes.HasPrefix(data, slashSlash) {
+				i := bytes.Index(data, newline)
+				if i < 0 {
+					return nil
+				}
+				data = data[i+1:]
+				continue
+			}
+			if bytes.HasPrefix(data, slashStar) {
+				data = data[2:]
+				i := bytes.Index(data, starSlash)
+				if i < 0 {
+					return nil
+				}
+				data = data[i+2:]
+				continue
+			}
+		}
+		break
+	}
+	return data
+}
+
+// parseWord skips any leading spaces or comments in data
+// and then parses the beginning of data as an identifier or keyword,
+// returning that word and what remains after the word.
+func parseWord(data []byte) (word, rest []byte) {
+	data = skipSpaceOrComment(data)
+
+	// Parse past leading word characters.
+	rest = data
+	for {
+		r, size := utf8.DecodeRune(rest)
+		if unicode.IsLetter(r) || '0' <= r && r <= '9' || r == '_' {
+			rest = rest[size:]
+			continue
+		}
+		break
+	}
+
+	word = data[:len(data)-len(rest)]
+	if len(word) == 0 {
+		return nil, nil
+	}
+
+	return word, rest
+}
+
+func findPackageDecl(data []byte) (pkgName string) {
+	// expect keyword package
+	word, data := parseWord(data)
+	if string(word) != "package" {
+		return ""
+	}
+
+	// expect package name
+	var pkgBytes []byte
+	pkgBytes, data = parseWord(data)
+	pkgName = string(pkgBytes)
+	if pkgName == "_" {
+		return ""
+	}
+	return pkgName
 }

@@ -55,7 +55,7 @@ func testRegress(t *testing.T, s *suggest.Suggester, testDir string) bool {
 	}
 	data = append(data[:cursor], data[cursor+1:]...)
 
-	candidates, prefixLen := s.Suggest(importer.Default(), filename, data, cursor)
+	candidates, prefixLen := s.Suggest(importer.Default(), filename, data, cursor, true)
 
 	var out bytes.Buffer
 	suggest.NiceFormat(&out, candidates, prefixLen)

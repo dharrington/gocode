@@ -13,8 +13,9 @@ import (
 
 // filePeek remembers basic file information.
 type filePeek struct {
-	pkgName string
-	modTime time.Time
+	importName string
+	pkgName    string
+	modTime    time.Time
 }
 
 // dir remembers directory information.
@@ -49,7 +50,7 @@ func (d *dir) modTime() time.Time {
 	}
 	for _, i := range list {
 		if strings.HasSuffix(i.Name(), ".go") && !i.IsDir() {
-			if fi, err := os.Stat(d.path + "/" + i.Name()); err == nil {
+			if fi, err := os.Stat(filepath.Join(d.path, i.Name())); err == nil {
 				if t := fi.ModTime(); latest.Before(t) {
 					latest = t
 				}
@@ -90,11 +91,11 @@ func (d *dir) updatePeek() (changed bool, err error) {
 			d.filePeeks[fileName].modTime = mt
 			changed = true
 			filename := filepath.Join(d.path, fileName)
-			pkgName, err := pkgNameFor(filename)
-			if err == nil {
-				peek.modTime = mt
-				peek.pkgName = pkgName
-			} else {
+			pkgName, importName, err := pkgNameFor(d.cache.ext, filename)
+			peek.modTime = mt
+			peek.pkgName = pkgName
+			peek.importName = importName
+			if err != nil {
 				log.Printf("pkgNameFor err=%v", err)
 			}
 		}
@@ -103,28 +104,30 @@ func (d *dir) updatePeek() (changed bool, err error) {
 }
 func (d *dir) modifiedPackages(mods map[*pkgInfo]bool) {
 	for _, peek := range d.filePeeks {
-		if pkg := d.packages[peek.pkgName]; pkg != nil {
+		if pkg := d.packages[peek.importName]; pkg != nil {
 			if pkg.updateTime.Before(peek.modTime) {
 				mods[pkg] = true
 			}
 		}
 	}
 }
-func (d *dir) getPackage(pkgName, pkgPath string) *pkgInfo {
-	if p := d.packages[pkgName]; p != nil {
+func (d *dir) getPackage(importName, pkgPath string) *pkgInfo {
+	if p := d.packages[importName]; p != nil {
 		return p
 	}
-	d.parsePackage(pkgName, pkgPath, 0)
-	return d.packages[pkgName]
+	d.parsePackage(importName, pkgPath, 0)
+	return d.packages[importName]
 }
-func (d *dir) parsePackage(pkgName, pkgPath string, mode parser.Mode) {
+func (d *dir) parsePackage(importName, pkgPath string, mode parser.Mode) {
 	if time.Since(d.peekTime) > time.Second {
 		d.updatePeek()
 	}
 	var packageFiles []string
+	var pkgName string
 	for fname, p := range d.filePeeks {
-		if p.pkgName == pkgName {
+		if p.importName == importName {
 			packageFiles = append(packageFiles, fname)
+			pkgName = p.pkgName
 		}
 	}
 	if len(packageFiles) == 0 {
@@ -139,14 +142,10 @@ func (d *dir) parsePackage(pkgName, pkgPath string, mode parser.Mode) {
 		fset: &token.FileSet{},
 		dir:  d,
 	}
-	d.packages[pkgName] = pkg
+	d.packages[importName] = pkg
 	for _, fname := range packageFiles {
 		filename := filepath.Join(d.path, fname)
 		if src, err := parser.ParseFile(pkg.fset, filename, nil, mode); err == nil {
-			if name := src.Name.Name; name != pkg.Package.Name {
-				log.Printf("Package name mismatch: %q!=%q", name, pkg.Package.Name)
-				src.Name = ast.NewIdent(pkg.Package.Name)
-			}
 			pkg.Files[filename] = src
 		} else {
 			log.Printf("ParseFile: %v", err)
@@ -159,13 +158,10 @@ func (d *dir) unlink() {
 	delete(d.cache.dirs, d.path)
 }
 
-func pkgNameFor(filename string) (string, error) {
-	file, err := parser.ParseFile(token.NewFileSet(), filename, nil, parser.PackageClauseOnly)
-	if err != nil {
-		return "", err
+func pkgNameFor(ext extension, filename string) (pkgName, impName string, err error) {
+	pkgName, err = scanPkg(filename)
+	if err != nil || pkgName == "" {
+		return "", "", err
 	}
-	if name := changePackageName(filename, file.Name.Name); name != "" {
-		return name, nil
-	}
-	return file.Name.Name, nil
+	return pkgName, ext.ImportName(pkgName, filename), nil
 }

@@ -29,7 +29,7 @@ func New(debug bool) *Suggester {
 
 // Suggest returns a list of suggestion candidates and the length of
 // the text that should be replaced, if any.
-func (c *Suggester) Suggest(importer types.Importer, filename string, data []byte, cursor int) ([]Candidate, int) {
+func (c *Suggester) Suggest(importer types.Importer, filename string, data []byte, cursor int, filter bool) ([]Candidate, int) {
 	if cursor < 0 {
 		return nil, 0
 	}
@@ -38,6 +38,9 @@ func (c *Suggester) Suggest(importer types.Importer, filename string, data []byt
 	scope := pkg.Scope().Innermost(pos)
 
 	ctx, expr, partial := deduceCursorContext(data, cursor)
+	if !filter {
+		partial = ""
+	}
 	b := candidateCollector{
 		localpkg: pkg,
 		partial:  partial,

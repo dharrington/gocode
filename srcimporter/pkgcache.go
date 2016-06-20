@@ -81,8 +81,7 @@ type pkgCache struct {
 	mu          sync.Mutex
 	dirs        map[string]*dir     // absolute path -> dir
 	vendorPaths map[string][]string // path -> vendor dir list
-	gopath      []string
-	currentFile string
+	ext         extension
 	lastUse     time.Time // last time Import was called
 	done        chan struct{}
 }
@@ -92,20 +91,16 @@ func newPkgCache(ctx *gbimporter.PackedContext) *pkgCache {
 		dirs:        make(map[string]*dir),
 		vendorPaths: make(map[string][]string),
 		done:        make(chan struct{}),
+		ext:         makeExtension(),
 	}
 	return cache
 }
 
-func (p *pkgCache) setContext(paths []string, filename string) {
-	if !stringSliceEq(p.gopath, paths) {
-		if Debug {
-			log.Printf("Set gopath: %v", paths)
-		}
-		p.gopath = paths
+func (p *pkgCache) setContext(ctx *gbimporter.PackedContext, filename string) {
+	if !p.ext.SetContext(ctx, filename) {
 		p.dirs = make(map[string]*dir)
 		p.vendorPaths = make(map[string][]string)
 	}
-	p.currentFile = filename
 }
 
 // Returns a list of vendor paths accessible from sources in srcDir.
@@ -316,15 +311,7 @@ func (p *pkgCache) lookupPaths(pkgPath, srcDir string) (name string, paths []str
 		name = pkgPath[idx+1:]
 		pkgDir = pkgPath[:idx]
 	}
-	if EnableVendoring {
-		for _, d := range p.getVendorPaths(srcDir) {
-			paths = append(paths, filepath.Join(d, pkgPath))
-		}
-	}
-	for _, d := range p.gopath {
-		paths = append(paths, filepath.Join(d, pkgPath))
-	}
-	extendLookupPaths(p, pkgDir, pkgPath, &paths)
+	paths = p.ext.LookupPaths(p, srcDir, pkgDir, pkgPath)
 	return name, paths
 }
 
